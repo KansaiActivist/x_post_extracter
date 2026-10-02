@@ -1,5 +1,5 @@
-# X_post_extracter
-Python単一が好きなので作成。
+# x_post_extracter
+Xで特定のキーワードが含まれるポストをcsvで出力します。
 # 使い方
 シェルで```python daily_post_extracter.py```を実行。
 ## コマンドオプション解説
