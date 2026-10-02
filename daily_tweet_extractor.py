@@ -1,22 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-daily_tweet_extractor.py
-
-X(旧Twitter)の日常系ツイート(学校・家・通学・通勤など)だけを
-Yahooリアルタイム検索 または Nitter経由で抽出するスクリプト。
-
-【重要な注意】
-- 対象サイトの利用規約・robots.txtを確認し、節度あるアクセス間隔で使用してください。
-- 過度な連続アクセスはIPブロックの原因になります(sleepを入れています)。
-- Nitterインスタンスは頻繁に停止・URL変更するため、複数候補を用意しています。
-- スクレイピングであるため、サイト側のHTML構造変更で動かなくなることがあります。
-
-使い方:
-    python daily_tweet_extractor.py --source yahoo --query "今日 学校" --max 50
-    python daily_tweet_extractor.py --source nitter --query "通勤" --max 50
-"""
-
 import argparse
 import csv
 import random
@@ -28,27 +9,17 @@ from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 
-# ----------------------------------------------------------------------
-# 日常判定用キーワード
-# ----------------------------------------------------------------------
-
-# 「日常っぽい」と判断するポジティブキーワード
 DAILY_LIFE_KEYWORDS = [
-    # 学校
     "学校", "授業", "部活", "宿題", "テスト", "先生", "クラスメイト",
     "通学", "教室", "休み時間", "文化祭", "体育祭", "受験", "塾",
-    # 家
     "家", "自宅", "帰宅", "実家", "晩ごはん", "夕飯", "朝ごはん",
     "洗濯", "掃除", "家事", "寝る前", "起きた", "寝坊",
-    # 通勤・移動
     "通勤", "満員電車", "電車", "バス", "駅", "会社", "出社",
     "在宅勤務", "残業", "定時", "遅刻", "乗り換え", "始発", "終電",
-    # 生活全般
     "眠い", "疲れた", "お腹すいた", "コンビニ", "ランチ", "お弁当",
     "天気", "雨", "暑い", "寒い",
 ]
 
-# ノイズ・宣伝系を除外するネガティブキーワード
 EXCLUDE_KEYWORDS = [
     "プレゼント企画", "フォロー&RT", "フォローで応募", "キャンペーン",
     "PR", "広告", "アフィリエイト", "副業", "稼げる", "LINE登録",
@@ -61,32 +32,22 @@ HASHTAG_PATTERN = re.compile(r"#\S+")
 
 
 def is_daily_life_tweet(text: str, include_keywords=None, exclude_keywords=None) -> bool:
-    """
-    テキストが対象キーワードにマッチするかを判定する。
-
-    include_keywords: これらのいずれかを含めば対象とする(未指定時は日常系デフォルト)
-    exclude_keywords: これらのいずれかを含めば除外する(未指定時は宣伝系デフォルト)
-    """
     if not text:
         return False
 
     include_keywords = include_keywords if include_keywords is not None else DAILY_LIFE_KEYWORDS
     exclude_keywords = exclude_keywords if exclude_keywords is not None else EXCLUDE_KEYWORDS
 
-    # 除外キーワードを含む場合はNG
     for ng in exclude_keywords:
         if ng in text:
             return False
 
-    # ハッシュタグが多すぎる(宣伝の可能性)は除外
     if len(HASHTAG_PATTERN.findall(text)) >= 4:
         return False
 
-    # URLが2個以上(宣伝・bot投稿の可能性)は除外
     if len(URL_PATTERN.findall(text)) >= 2:
         return False
 
-    # include_keywords が空リストなら「フィルタなし(全件通過)」として扱う
     if not include_keywords:
         return True
 
@@ -99,29 +60,10 @@ def clean_text(text: str) -> str:
     return text
 
 
-# ----------------------------------------------------------------------
-# Yahoo!リアルタイム検索
-# ----------------------------------------------------------------------
 
 def fetch_yahoo_realtime(query: str, max_results: int = 50, sleep_sec: float = 1.5,
                           account: str = None, debug: bool = False):
-    """
-    Yahoo!リアルタイム検索(search.yahoo.co.jp/realtime)から
-    ツイートテキストを取得するジェネレータ。
 
-    account を指定すると "id:アカウント名"(Yahooリアルタイム検索の
-    投稿者絞り込み演算子)を検索クエリに付加した上で、
-    さらに各ツイートのコンテナ要素内にある投稿者リンク(href に
-    "twitter.com/アカウント名" や "x.com/アカウント名" を含むもの)を
-    実際にチェックし、一致するツイートだけを返す。
-    これにより、id: 演算子だけでは弾ききれない
-    (引用元・返信先・関連投稿などで他アカウントの本文が
-    ページに混在するケース)を防ぐ。
-
-    ※Yahoo側のHTML構造は変わりやすいため、うまく取得できない場合は
-      debug=True で保存されるHTMLを確認し、CONTAINER_SELECTORS /
-      AUTHOR_LINK_PATTERNS を実際の構造に合わせて調整してください。
-    """
     if account:
         account = account.lstrip("@")
         query = f"{query} id:{account}".strip()
@@ -135,11 +77,6 @@ def fetch_yahoo_realtime(query: str, max_results: int = 50, sleep_sec: float = 1
         )
     }
 
-    # ツイート1件分をまとめて含んでいるコンテナ(実際のYahooリアルタイム検索の
-    # HTML構造: <div class="Tweet_TweetContainer__xxxx ...">)。
-    # 注意: ページ内には「トレンド」欄などの <article> タグも別途存在するため、
-    # 汎用的な "article" 等では誤ったコンテナを拾ってしまう。必ずこの
-    # TweetContainer クラスを使うこと。
     CONTAINER_SELECTOR = "div[class*='TweetContainer']"
     BODY_SELECTOR = "p[class*='Tweet_body']"
     AUTHOR_LINK_SELECTOR = "a[class*='Tweet_authorID']"
@@ -195,19 +132,15 @@ def fetch_yahoo_realtime(query: str, max_results: int = 50, sleep_sec: float = 1
                 break
 
         if not found_any:
-            # これ以上結果が取れない場合は終了
             break
 
         page += 1
         time.sleep(sleep_sec + random.random())
 
 
-# ----------------------------------------------------------------------
-# Nitter検索
-# ----------------------------------------------------------------------
 
 NITTER_INSTANCES = [
-    "https://nitter.net",
+    "https://nitter.space",
     "https://nitter.poast.org",
     "https://nitter.privacyredirect.com",
 ]
@@ -215,14 +148,6 @@ NITTER_INSTANCES = [
 
 def fetch_nitter(query: str, max_results: int = 50, sleep_sec: float = 1.5,
                   account: str = None):
-    """
-    Nitterの検索結果からツイートを取得するジェネレータ。
-    複数インスタンスを順番に試す(稼働状況が不安定なため)。
-
-    account を指定すると、そのアカウントのタイムライン内検索
-    (/ユーザー名/search)を使い、投稿者をそのアカウントに限定する。
-    query が空文字でも account だけで全投稿を取得できる。
-    """
     if account:
         account = account.lstrip("@")
 
@@ -240,7 +165,6 @@ def fetch_nitter(query: str, max_results: int = 50, sleep_sec: float = 1.5,
         print(f"[info] Nitterインスタンス試行中: {instance}", file=sys.stderr)
         while collected < max_results:
             if account:
-                # ユーザーのタイムライン内検索。query未指定なら全投稿対象。
                 url = f"{instance}/{account}/search"
                 params = {"f": "tweets"}
                 if query:
@@ -285,13 +209,9 @@ def fetch_nitter(query: str, max_results: int = 50, sleep_sec: float = 1.5,
             time.sleep(sleep_sec + random.random())
 
         if collected > 0:
-            return  # 成功したインスタンスがあれば終了
+            return  
     print("[warn] すべてのNitterインスタンスで取得できませんでした。", file=sys.stderr)
 
-
-# ----------------------------------------------------------------------
-# メイン処理
-# ----------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description="日常系ツイート抽出スクリプト")
@@ -323,7 +243,6 @@ def main():
                               "(セレクタ調整・トラブルシュート用)")
     args = parser.parse_args()
 
-    # --- キーワードリストの決定 ---
     def load_keyword_list(file_arg, inline_arg, default_list):
         if file_arg:
             with open(file_arg, encoding="utf-8") as f:
@@ -340,7 +259,7 @@ def main():
 
     if args.source == "yahoo":
         if not args.query and args.account:
-            args.query = ""  # from: 演算子だけで検索
+            args.query = "" 
         fetcher = fetch_yahoo_realtime(args.query, max_results=args.max, account=args.account,
                                         debug=args.debug)
     else:
